@@ -8,7 +8,7 @@ services:
     network_mode: host
     stdin_open: true
     tty: true
-    command: ["./build/coap2HttpServer", "-A", "::", "-n", "-c", "/home/coap2http-proxy/wolfssl/certs/server-ecc.pem", "-j", "/home/coap2http-proxy/wolfssl/certs/ecc-key.pem", "-C", "/home/coap2http-proxy/wolfssl/certs/ca-ecc-cert.pem", "-P", ",my_proxy"]
+    command: ["./build/coap2HttpServer", "-A", "::", "-n", "-c", "${COAP_CERT:-/home/coap2http-proxy/wolfssl/certs/server-ecc.pem}", "-j", "${COAP_KEY:-/home/coap2http-proxy/wolfssl/certs/ecc-key.pem}", "-C", "${COAP_CA:-/home/coap2http-proxy/wolfssl/certs/ca-ecc-cert.pem}", "-P", ",my_proxy"]
     restart: "no"
 
   nginx-proxy:

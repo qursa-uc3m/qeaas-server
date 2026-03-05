@@ -61,6 +61,23 @@ extendedKeyUsage       = critical, serverAuth,clientAuth\n\
 basicConstraints       = critical, CA:false\n" > entity.conf
 
 ###############################################################################
+# ML-DSA-44 (Dilithium2 — NIST Level 2, smallest)
+###############################################################################
+
+echo "Generating ML-DSA-44 (dilithium2) keys..."
+${OPENSSL} genpkey -algorithm dilithium2 -outform pem -out dilithium2_root_key.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+${OPENSSL} genpkey -algorithm dilithium2 -outform pem -out dilithium2_entity_key.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating ML-DSA-44 root certificate..."
+${OPENSSL} req -x509 -config root.conf -extensions ca_extensions -days 1095 -set_serial 200 -key dilithium2_root_key.pem -out dilithium2_root_cert.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating ML-DSA-44 entity CSR..."
+${OPENSSL} req -new -config entity.conf -key dilithium2_entity_key.pem -out dilithium2_entity_req.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+echo "Generating ML-DSA-44 entity certificate..."
+${OPENSSL} x509 -req -in dilithium2_entity_req.pem -CA dilithium2_root_cert.pem -CAkey dilithium2_root_key.pem -extfile entity.conf -extensions x509v3_extensions -days 1095 -set_serial 201 -out dilithium2_entity_cert.pem -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default
+
+###############################################################################
 # Dilithium3
 ###############################################################################
 
@@ -139,6 +156,7 @@ ${OPENSSL} x509 -req -in rsa_2048_entity_req.pem -CA rsa_2048_root_cert.pem -CAk
 # Verify all generated certificates.
 ###############################################################################
 echo "Verifying certificates..."
+${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile dilithium2_root_cert.pem dilithium2_entity_cert.pem
 ${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile dilithium3_root_cert.pem dilithium3_entity_cert.pem
 ${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile falcon_level1_root_cert.pem falcon_level1_entity_cert.pem
 ${OPENSSL} verify -no-CApath -check_ss_sig -provider-path ${PROVIDER_PATH} -provider oqsprovider -provider default -CAfile falcon_level5_root_cert.pem falcon_level5_entity_cert.pem
