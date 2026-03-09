@@ -110,8 +110,10 @@ int main(int argc, char **argv)
     cert.version = 2;  /* v3 */
 #endif
 
+    /* Use ML_DSA_LEVEL2_TYPE (Cert_KeyType) not ML_DSA_LEVEL2k (OID sum)
+     * to avoid BAD_FUNC_ARG with WC_OID_SUM_HASH (--enable-all) builds. */
     caDerSz = wc_MakeCert_ex(&cert, caDer, CERT_BUF_SZ,
-                              ML_DSA_LEVEL2k, &caKey, &rng);
+                              ML_DSA_LEVEL2_TYPE, &caKey, &rng);
     if (caDerSz < 0) {
         fprintf(stderr, "MakeCert CA: %d (%s)\n", caDerSz,
                 wc_GetErrorString(caDerSz));
@@ -119,7 +121,7 @@ int main(int argc, char **argv)
     }
     /* Self-sign */
     caDerSz = wc_SignCert_ex(cert.bodySz, cert.sigType, caDer, CERT_BUF_SZ,
-                             ML_DSA_LEVEL2k, &caKey, &rng);
+                             ML_DSA_LEVEL2_TYPE, &caKey, &rng);
     if (caDerSz < 0) {
         fprintf(stderr, "SignCert CA: %d (%s)\n", caDerSz,
                 wc_GetErrorString(caDerSz));
@@ -181,7 +183,7 @@ int main(int argc, char **argv)
     }
 
     certDerSz = wc_MakeCert_ex(&cert, certDer, CERT_BUF_SZ,
-                                ML_DSA_LEVEL2k, &srvKey, &rng);
+                                ML_DSA_LEVEL2_TYPE, &srvKey, &rng);
     if (certDerSz < 0) {
         fprintf(stderr, "MakeCert srv: %d (%s)\n", certDerSz,
                 wc_GetErrorString(certDerSz));
@@ -189,7 +191,7 @@ int main(int argc, char **argv)
     }
     /* Sign with CA key */
     certDerSz = wc_SignCert_ex(cert.bodySz, cert.sigType, certDer, CERT_BUF_SZ,
-                               ML_DSA_LEVEL2k, &caKey, &rng);
+                               ML_DSA_LEVEL2_TYPE, &caKey, &rng);
     if (certDerSz < 0) {
         fprintf(stderr, "SignCert srv: %d (%s)\n", certDerSz,
                 wc_GetErrorString(certDerSz));
