@@ -3,7 +3,9 @@
 
 #include <cstring>
 
-void QuantumRandomNumberController::generateRandomNumber(const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback, int num_bytes)
+void QuantumRandomNumberController::generateRandomNumber(
+    const HttpRequestPtr &req, std::function<void(const HttpResponsePtr &)> &&callback,
+    int num_bytes)
 {
     Json::Value result;
     if (num_bytes <= 0 || num_bytes > 8)
@@ -24,6 +26,11 @@ void QuantumRandomNumberController::generateRandomNumber(const HttpRequestPtr &r
             result["random_number"] = Json::Value::UInt64(randomNumber);
             result["source"] = random.source;
             result["extraction"] = random.extractionApplied;
+            result["extraction_mode"] = random.extractionMode;
+            if (randomSource().options().source == QrngSource::Pcie)
+            {
+                result["pcie_output"] = pcieOutputName(randomSource().options().pcieOutput);
+            }
             result["xor_os"] = random.xorOsApplied;
             result["fallback"] = random.fallbackUsed;
             if (!random.warning.empty())

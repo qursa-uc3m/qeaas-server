@@ -10,6 +10,7 @@
 #include <memory>
 #include <stdexcept>
 #include <unistd.h>
+#include <utility>
 
 namespace
 {
@@ -26,6 +27,11 @@ std::string sourceName(QrngSource source)
     return source == QrngSource::Usb ? "usb" : "pcie";
 }
 
+std::string pcieOutputName(PcieOutput output)
+{
+    return output == PcieOutput::Extracted ? "extracted" : "raw";
+}
+
 RandomSource::RandomSource(RandomSourceOptions options) : options_(std::move(options))
 {
 #ifndef QRNG_ENABLE_OS_XOR
@@ -36,13 +42,21 @@ RandomSource::RandomSource(RandomSourceOptions options) : options_(std::move(opt
     }
 #endif
 
+    if (options_.source == QrngSource::Pcie && options_.pcieOutput == PcieOutput::Extracted &&
+        options_.extraction)
+    {
+        throw std::runtime_error(
+            "PCIe extracted mode already uses the card's hardware post-processing; "
+            "use --extract off, or select PCIe raw/sample mode first");
+    }
+
     if (!options_.extraction)
     {
         return;
     }
 
-    const auto status = QuantisExtractorInitializeMatrix(
-        options_.matrixPath.c_str(), &extractorMatrix_, 1024, 768);
+    const auto status =
+        QuantisExtractorInitializeMatrix(options_.matrixPath.c_str(), &extractorMatrix_, 1024, 768);
     if (status != QUANTIS_SUCCESS)
     {
         QuantisExtractorUninitializeMatrix(&extractorMatrix_);
@@ -65,10 +79,8 @@ const RandomSourceOptions &RandomSource::options() const
     return options_;
 }
 
-bool RandomSource::readFile(const std::string &path,
-                            std::size_t size,
-                            std::vector<std::uint8_t> &output,
-                            std::string &error)
+bool RandomSource::readFile(const std::string &path, std::size_t size,
+                            std::vector<std::uint8_t> &output, std::string &error)
 {
     const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0)
@@ -102,9 +114,7 @@ bool RandomSource::readFile(const std::string &path,
     return true;
 }
 
-bool RandomSource::readRaw(std::size_t size,
-                           std::vector<std::uint8_t> &output,
-                           std::string &error)
+bool RandomSource::readRaw(std::size_t size, std::vector<std::uint8_t> &output, std::string &error)
 {
     if (options_.source == QrngSource::Pcie)
     {
@@ -118,27 +128,23 @@ bool RandomSource::readRaw(std::size_t size,
     }
 
     output.resize(size);
-    const int count = QuantisRead(QUANTIS_DEVICE_USB,
-                                  options_.deviceNumber,
-                                  output.data(),
-                                  size);
+    const int count = QuantisRead(QUANTIS_DEVICE_USB, options_.deviceNumber, output.data(), size);
     if (count < 0)
     {
-        error = std::string("Quantis USB read failed: ") + QuantisStrError(
-                    static_cast<QuantisError>(count));
+        error = std::string("Quantis USB read failed: ") +
+                QuantisStrError(static_cast<QuantisError>(count));
         return false;
     }
     if (static_cast<std::size_t>(count) != size)
     {
-        error = "Quantis USB returned " + std::to_string(count) +
-                " bytes; expected " + std::to_string(size);
+        error = "Quantis USB returned " + std::to_string(count) + " bytes; expected " +
+                std::to_string(size);
         return false;
     }
     return true;
 }
 
-bool RandomSource::readPrimary(std::size_t size,
-                               std::vector<std::uint8_t> &output,
+bool RandomSource::readPrimary(std::size_t size, std::vector<std::uint8_t> &output,
                                std::string &error)
 {
     if (!options_.extraction)
@@ -154,12 +160,11 @@ bool RandomSource::readPrimary(std::size_t size,
 
     std::uint32_t outputSize = 0;
     std::uint32_t inputSize = 0;
-    const int status = QuantisExtractorComputeBufferSize(
-        static_cast<std::uint32_t>(size), &outputSize, &inputSize);
+    const int status = QuantisExtractorComputeBufferSize(static_cast<std::uint32_t>(size),
+                                                         &outputSize, &inputSize);
     if (status != QUANTIS_SUCCESS)
     {
-        error = "Cannot compute Quantis extraction buffer sizes: " +
-                std::to_string(status);
+        error = "Cannot compute Quantis extraction buffer sizes: " + std::to_string(status);
         return false;
     }
 
@@ -170,15 +175,12 @@ bool RandomSource::readPrimary(std::size_t size,
     }
 
     std::vector<std::uint8_t> extracted(outputSize);
-    QuantisExtractorGetDataFromBuffer(
-        input.data(), extracted.data(), extractorMatrix_, outputSize);
+    QuantisExtractorGetDataFromBuffer(input.data(), extracted.data(), extractorMatrix_, outputSize);
     output.assign(extracted.begin(), extracted.begin() + static_cast<std::ptrdiff_t>(size));
     return true;
 }
 
-bool RandomSource::read(std::size_t size,
-                        RandomReadResult &result,
-                        std::string &error)
+bool RandomSource::read(std::size_t size, RandomReadResult &result, std::string &error)
 {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -198,14 +200,27 @@ bool RandomSource::read(std::size_t size,
         }
 
         result.source = "/dev/urandom";
+        result.extractionMode = "none";
         result.warning = primaryError;
         result.fallbackUsed = true;
         return true;
     }
 
-    result.source = options_.source == QrngSource::Usb ? "Quantis USB library"
-                                                       : options_.qrandomPath;
+    result.source =
+        options_.source == QrngSource::Usb ? "Quantis USB library" : options_.qrandomPath;
     result.extractionApplied = options_.extraction;
+    if (options_.extraction)
+    {
+        result.extractionMode = "software-matrix";
+    }
+    else if (options_.source == QrngSource::Pcie && options_.pcieOutput == PcieOutput::Extracted)
+    {
+        result.extractionMode = "pcie-hardware";
+    }
+    else if (options_.source == QrngSource::Pcie)
+    {
+        result.warning = "PCIe raw/sample output is being returned without randomness extraction";
+    }
 
     if (options_.xorOs)
     {

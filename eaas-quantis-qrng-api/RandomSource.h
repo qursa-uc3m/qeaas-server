@@ -12,9 +12,16 @@ enum class QrngSource
     Pcie
 };
 
+enum class PcieOutput
+{
+    Extracted,
+    Raw
+};
+
 struct RandomSourceOptions
 {
     QrngSource source = QrngSource::Pcie;
+    PcieOutput pcieOutput = PcieOutput::Extracted;
     unsigned int deviceNumber = 0;
     std::string qrandomPath = "/dev/qrandom0";
     bool extraction = false;
@@ -28,6 +35,7 @@ struct RandomReadResult
     std::vector<std::uint8_t> bytes;
     std::string source;
     std::string warning;
+    std::string extractionMode = "none";
     bool extractionApplied = false;
     bool xorOsApplied = false;
     bool fallbackUsed = false;
@@ -48,9 +56,7 @@ class RandomSource
   private:
     bool readPrimary(std::size_t size, std::vector<std::uint8_t> &output, std::string &error);
     bool readRaw(std::size_t size, std::vector<std::uint8_t> &output, std::string &error);
-    bool readFile(const std::string &path,
-                  std::size_t size,
-                  std::vector<std::uint8_t> &output,
+    bool readFile(const std::string &path, std::size_t size, std::vector<std::uint8_t> &output,
                   std::string &error);
 
     RandomSourceOptions options_;
@@ -61,3 +67,4 @@ class RandomSource
 void initializeRandomSource(RandomSourceOptions options);
 RandomSource &randomSource();
 std::string sourceName(QrngSource source);
+std::string pcieOutputName(PcieOutput output);

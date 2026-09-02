@@ -39,4 +39,4 @@ RUN echo '/opt/quantis/lib' > /etc/ld.so.conf.d/quantis.conf && ldconfig
 
 EXPOSE 6065
 ENTRYPOINT ["/usr/local/bin/eaas-quantis-qrng-api"]
-CMD ["--source", "pcie", "--fallback", "on"]
+CMD ["--source", "pcie", "--pcie-output", "extracted", "--fallback", "on"]

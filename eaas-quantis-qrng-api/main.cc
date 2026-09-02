@@ -33,6 +33,7 @@ void printUsage(const char *program)
     std::cout
         << "Usage: " << program << " [options]\n\n"
         << "  --source usb|pcie       Primary QRNG source (default: pcie)\n"
+        << "  --pcie-output MODE      extracted|raw; must match host driver (default: extracted)\n"
         << "  --device-number N       Quantis USB index (default: 0)\n"
         << "  --qrandom PATH          PCIe device path (default: /dev/qrandom0)\n"
         << "  --extract on|off        Matrix extraction (default: off)\n"
@@ -74,6 +75,21 @@ AppOptions parseArguments(int argc, char **argv)
             else
             {
                 throw std::runtime_error("--source expects 'usb' or 'pcie'");
+            }
+        }
+        else if (argument == "--pcie-output")
+        {
+            if (value == "extracted")
+            {
+                options.random.pcieOutput = PcieOutput::Extracted;
+            }
+            else if (value == "raw")
+            {
+                options.random.pcieOutput = PcieOutput::Raw;
+            }
+            else
+            {
+                throw std::runtime_error("--pcie-output expects 'extracted' or 'raw'");
             }
         }
         else if (argument == "--device-number")
@@ -127,10 +143,10 @@ int main(int argc, char **argv)
         initializeRandomSource(options.random);
 
         std::cout << "QRNG source=" << sourceName(options.random.source)
+                  << " pcie_output=" << pcieOutputName(options.random.pcieOutput)
                   << " extraction=" << (options.random.extraction ? "on" : "off")
                   << " xor_os=" << (options.random.xorOs ? "on" : "off")
-                  << " fallback=" << (options.random.fallback ? "on" : "off")
-                  << '\n';
+                  << " fallback=" << (options.random.fallback ? "on" : "off") << '\n';
 
         drogon::app().addListener("0.0.0.0", options.port).run();
     }
