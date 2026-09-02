@@ -26,12 +26,27 @@ services:
     build:
       context: ./eaas-quantis-qrng-api
       dockerfile: Dockerfile
+      args:
+        OS_XOR: ${QRNG_BUILD_OS_XOR:-ON}
     image: qrng-api
     container_name: qrng-api
     network_mode: host
-    stdin_open: true
-    tty: true
+    privileged: true
     ports:
       - "6065:6065"
-    command: ["./eaas-quantis-qrng-api"]
+    command:
+      - --source
+      - ${QRNG_SOURCE:-pcie}
+      - --device-number
+      - ${QRNG_DEVICE_NUMBER:-0}
+      - --qrandom
+      - ${QRNG_DEVICE_PATH:-/dev/qrandom0}
+      - --extract
+      - ${QRNG_EXTRACT:-off}
+      - --matrix
+      - ${QRNG_MATRIX:-/opt/quantis/share/quantis/default_idq_matrix.dat}
+      - --xor-os
+      - ${QRNG_XOR_OS:-off}
+      - --fallback
+      - ${QRNG_FALLBACK:-on}
     restart: "no"

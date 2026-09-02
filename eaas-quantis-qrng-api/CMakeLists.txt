@@ -1,82 +1,75 @@
-cmake_minimum_required(VERSION 3.5)
-project(eaas-quantis-qrng-api CXX)
+cmake_minimum_required(VERSION 3.16)
 
-include(CheckIncludeFileCXX)
+project(eaas-quantis-qrng-api VERSION 1.0 LANGUAGES CXX)
 
-# ##############################################################################
-# Include the controllers directory
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/controllers)
-
-# ##############################################################################
-
-check_include_file_cxx(any HAS_ANY)
-check_include_file_cxx(string_view HAS_STRING_VIEW)
-check_include_file_cxx(coroutine HAS_COROUTINE)
-if (NOT "${CMAKE_CXX_STANDARD}" STREQUAL "")
-    # Do nothing
-elseif (HAS_ANY AND HAS_STRING_VIEW AND HAS_COROUTINE)
-    set(CMAKE_CXX_STANDARD 20)
-elseif (HAS_ANY AND HAS_STRING_VIEW)
-    set(CMAKE_CXX_STANDARD 17)
-else ()
-    set(CMAKE_CXX_STANDARD 14)
-endif ()
-
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_executable(${PROJECT_NAME} main.cc controllers/QuantumRandomNumberController.cc)
+option(ENABLE_OS_XOR "Allow XORing QRNG output with /dev/urandom" ON)
+set(QUANTIS_ROOT "/opt/quantis" CACHE PATH "Quantis installation prefix")
 
-# ##############################################################################
-# If you include the drogon source code locally in your project, use this method
-# to add drogon 
-# add_subdirectory(drogon) 
-# target_link_libraries(${PROJECT_NAME} PRIVATE drogon)
-#
-# and comment out the following lines
-find_package(Drogon CONFIG REQUIRED)
-target_link_libraries(${PROJECT_NAME} PRIVATE Drogon::Drogon)
+find_library(DROGON_LIBRARY drogon REQUIRED)
+if(DROGON_LIBRARY MATCHES "\\.a$")
+  find_package(Drogon CONFIG REQUIRED)
+  set(DROGON_LIBRARIES Drogon::Drogon)
+else()
+  find_path(DROGON_INCLUDE_DIR drogon/drogon.h REQUIRED)
+  find_path(JSONCPP_INCLUDE_DIR json/json.h PATH_SUFFIXES jsoncpp REQUIRED)
+  find_library(JSONCPP_LIBRARY jsoncpp REQUIRED)
+  find_library(TRANTOR_LIBRARY trantor REQUIRED)
+  set(DROGON_LIBRARIES ${DROGON_LIBRARY} ${TRANTOR_LIBRARY} ${JSONCPP_LIBRARY})
+endif()
 
-# ##############################################################################
+find_path(QUANTIS_INCLUDE_DIR Quantis.h
+  HINTS ${QUANTIS_ROOT}
+  PATH_SUFFIXES include Libs-Apps/Quantis
+  REQUIRED
+)
+find_path(QUANTIS_EXTENSIONS_INCLUDE_DIR QuantisExtractor.h
+  HINTS ${QUANTIS_ROOT}
+  PATH_SUFFIXES include Libs-Apps/QuantisExtensions
+  REQUIRED
+)
+find_library(QUANTIS_LIBRARY Quantis
+  HINTS ${QUANTIS_ROOT}
+  PATH_SUFFIXES lib lib64 Libs-Apps/build/Quantis
+  REQUIRED
+)
+find_library(QUANTIS_EXTENSIONS_LIBRARY Quantis_Extensions
+  HINTS ${QUANTIS_ROOT}
+  PATH_SUFFIXES lib lib64 Libs-Apps/build/QuantisExtensions
+  REQUIRED
+)
 
-if (CMAKE_CXX_STANDARD LESS 17)
-    # With C++14, use boost to support any, string_view and filesystem
-    message(STATUS "use c++14")
-    find_package(Boost 1.61.0 REQUIRED)
-    target_link_libraries(${PROJECT_NAME} PUBLIC Boost::boost)
-elseif (CMAKE_CXX_STANDARD LESS 20)
-    message(STATUS "use c++17")
-else ()
-    message(STATUS "use c++20")
-endif ()
+add_executable(${PROJECT_NAME}
+  main.cc
+  RandomSource.cc
+  controllers/QuantumRandomNumberController.cc
+)
 
-aux_source_directory(controllers CTL_SRC)
-aux_source_directory(filters FILTER_SRC)
-aux_source_directory(plugins PLUGIN_SRC)
-aux_source_directory(models MODEL_SRC)
+target_include_directories(${PROJECT_NAME} PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/controllers
+  ${DROGON_INCLUDE_DIR}
+  ${JSONCPP_INCLUDE_DIR}
+  ${QUANTIS_INCLUDE_DIR}
+  ${QUANTIS_EXTENSIONS_INCLUDE_DIR}
+)
+target_link_libraries(${PROJECT_NAME} PRIVATE
+  ${DROGON_LIBRARIES}
+  ${QUANTIS_EXTENSIONS_LIBRARY}
+  ${QUANTIS_LIBRARY}
+)
 
-drogon_create_views(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/views
-                    ${CMAKE_CURRENT_BINARY_DIR})
-# use the following line to create views with namespaces.
-# drogon_create_views(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/views
-#                     ${CMAKE_CURRENT_BINARY_DIR} TRUE)
-# use the following line to create views with namespace CHANGE_ME prefixed
-# and path namespaces.
-# drogon_create_views(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/views
-#                     ${CMAKE_CURRENT_BINARY_DIR} TRUE CHANGE_ME)
+if(ENABLE_OS_XOR)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE QRNG_ENABLE_OS_XOR=1)
+endif()
 
-target_include_directories(${PROJECT_NAME}
-                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-                                   ${CMAKE_CURRENT_SOURCE_DIR}/models)
-target_sources(${PROJECT_NAME}
-               PRIVATE
-               ${SRC_DIR}
-               ${CTL_SRC}
-               ${FILTER_SRC}
-               ${PLUGIN_SRC}
-               ${MODEL_SRC})
-# ##############################################################################
-# uncomment the following line for dynamically loading views 
-# set_property(TARGET ${PROJECT_NAME} PROPERTY ENABLE_EXPORTS ON)
+get_filename_component(QUANTIS_LIBRARY_DIR ${QUANTIS_LIBRARY} DIRECTORY)
+get_filename_component(QUANTIS_EXTENSIONS_LIBRARY_DIR ${QUANTIS_EXTENSIONS_LIBRARY} DIRECTORY)
+set_target_properties(${PROJECT_NAME} PROPERTIES
+  BUILD_RPATH "${QUANTIS_LIBRARY_DIR};${QUANTIS_EXTENSIONS_LIBRARY_DIR}"
+)
 
-# ##############################################################################
+install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)

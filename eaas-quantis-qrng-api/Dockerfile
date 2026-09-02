@@ -1,26 +1,42 @@
-FROM ubuntu:latest
+FROM ubuntu:24.04 AS builder
 
-# api path
-ARG APIDIR="/home/eaas-quantis-qrng-api"
+ARG DEBIAN_FRONTEND=noninteractive
 
-# api run
-ARG APIRUN=${APIDIR}/build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake libdrogon-dev libjsoncpp-dev libusb-1.0-0-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
-# get all software packages required
-RUN apt update && apt upgrade -y && apt install -y \
-    && apt install git -y && apt install gcc -y && apt install g++ -y && apt install cmake -y \
-    && apt install libjsoncpp-dev -y && apt install uuid-dev -y && apt install zlib1g-dev -y \
-    && apt install openssl -y && apt install libssl-dev -y
+COPY dependencies/quantis-libraries /tmp/quantis-libraries
+RUN /tmp/quantis-libraries/install_quantis_libraries.sh \
+      --target /opt/quantis \
+      --library-path /tmp/quantis-libraries \
+      --device usb \
+      --extraction \
+      --skip-dependencies
 
-WORKDIR ${APIDIR}
+WORKDIR /src
+COPY CMakeLists.txt main.cc RandomSource.cc RandomSource.h ./
+COPY controllers ./controllers
+ARG OS_XOR=ON
+RUN cmake -S . -B build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DENABLE_OS_XOR="${OS_XOR}" \
+      -DQUANTIS_ROOT=/opt/quantis \
+    && cmake --build build --parallel
 
-    COPY . ${APIDIR}
-    RUN git clone https://github.com/drogonframework/drogon && cd drogon \
-        && git submodule update --init && mkdir build && cd build && cmake .. \
-        && make && make install
+FROM ubuntu:24.04
 
-WORKDIR ${APIDIR}
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libdrogon1t64 libusb-1.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
-    RUN mkdir build && cd build && cmake .. && make
+COPY --from=builder /opt/quantis/lib/ /opt/quantis/lib/
+COPY --from=builder /opt/quantis/share/ /opt/quantis/share/
+COPY --from=builder /src/build/eaas-quantis-qrng-api /usr/local/bin/eaas-quantis-qrng-api
 
-WORKDIR ${APIRUN}
+RUN echo '/opt/quantis/lib' > /etc/ld.so.conf.d/quantis.conf && ldconfig
+
+EXPOSE 6065
+ENTRYPOINT ["/usr/local/bin/eaas-quantis-qrng-api"]
+CMD ["--source", "pcie", "--fallback", "on"]
