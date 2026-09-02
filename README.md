@@ -7,8 +7,9 @@ This repository implements a Quantum Entropy as a Service (QEaaS) server, provid
 The QRNG API has two hardware paths: USB uses `libusb` through the Quantis
 library; PCIe uses the host driver's `/dev/qrandom0`. PCIe RNG mode already
 uses card hardware post-processing; the software matrix is for USB or PCIe
-SAMPLE/raw mode. Linux-kernel XOR and `/dev/urandom` fallback are separate
-switches. See the
+SAMPLE/raw mode. `--source os` reads the Linux CRNG with `getrandom()`, including
+any QRNG entropy fed to the kernel by `rngd`. OS XOR and `getrandom()` fallback
+are separate switches. See the
 [`eaas-quantis-qrng-api` README](eaas-quantis-qrng-api/README.md) for the compact
 mode table and flags.
 

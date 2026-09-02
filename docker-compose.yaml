@@ -31,8 +31,7 @@ services:
     image: qrng-api
     container_name: qrng-api
     network_mode: host
-    devices:
-      - ${QRNG_DOCKER_DEVICE:-/dev/qrandom0:/dev/qrandom0:r}
+    privileged: ${QRNG_PRIVILEGED:-false}
     ports:
       - "6065:6065"
     command:

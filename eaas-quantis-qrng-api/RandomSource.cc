@@ -9,6 +9,7 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <sys/random.h>
 #include <unistd.h>
 #include <utility>
 
@@ -24,7 +25,11 @@ std::string systemError(const std::string &operation)
 
 std::string sourceName(QrngSource source)
 {
-    return source == QrngSource::Usb ? "usb" : "pcie";
+    if (source == QrngSource::Usb)
+    {
+        return "usb";
+    }
+    return source == QrngSource::Pcie ? "pcie" : "os";
 }
 
 std::string pcieOutputName(PcieOutput output)
@@ -41,6 +46,15 @@ RandomSource::RandomSource(RandomSourceOptions options) : options_(std::move(opt
             "OS XOR was disabled at build time; rebuild with -DENABLE_OS_XOR=ON");
     }
 #endif
+
+    if (options_.source == QrngSource::Os && options_.extraction)
+    {
+        throw std::runtime_error("Software extraction is not available for --source os");
+    }
+    if (options_.source == QrngSource::Os && options_.xorOs)
+    {
+        throw std::runtime_error("--xor-os is redundant with --source os; use --xor-os off");
+    }
 
     if (options_.source == QrngSource::Pcie && options_.pcieOutput == PcieOutput::Extracted &&
         options_.extraction)
@@ -116,6 +130,11 @@ bool RandomSource::readFile(const std::string &path, std::size_t size,
 
 bool RandomSource::readRaw(std::size_t size, std::vector<std::uint8_t> &output, std::string &error)
 {
+    if (options_.source == QrngSource::Os)
+    {
+        return readOs(size, output, error);
+    }
+
     if (options_.source == QrngSource::Pcie)
     {
         return readFile(options_.qrandomPath, size, output, error);
@@ -139,6 +158,30 @@ bool RandomSource::readRaw(std::size_t size, std::vector<std::uint8_t> &output, 
     {
         error = "Quantis USB returned " + std::to_string(count) + " bytes; expected " +
                 std::to_string(size);
+        return false;
+    }
+    return true;
+}
+
+bool RandomSource::readOs(std::size_t size, std::vector<std::uint8_t> &output, std::string &error)
+{
+    output.resize(size);
+    std::size_t offset = 0;
+    while (offset < size)
+    {
+        const ssize_t count = getrandom(output.data() + offset, size - offset, 0);
+        if (count > 0)
+        {
+            offset += static_cast<std::size_t>(count);
+            continue;
+        }
+        if (count < 0 && errno == EINTR)
+        {
+            continue;
+        }
+
+        error = count == 0 ? "Linux getrandom() returned no data"
+                           : systemError("Linux getrandom() failed");
         return false;
     }
     return true;
@@ -193,21 +236,31 @@ bool RandomSource::read(std::size_t size, RandomReadResult &result, std::string 
         }
 
         const std::string primaryError = error;
-        if (!readFile("/dev/urandom", size, result.bytes, error))
+        if (!readOs(size, result.bytes, error))
         {
             error = primaryError + "; fallback also failed: " + error;
             return false;
         }
 
-        result.source = "/dev/urandom";
+        result.source = "Linux getrandom()";
         result.extractionMode = "none";
         result.warning = primaryError;
         result.fallbackUsed = true;
         return true;
     }
 
-    result.source =
-        options_.source == QrngSource::Usb ? "Quantis USB library" : options_.qrandomPath;
+    if (options_.source == QrngSource::Usb)
+    {
+        result.source = "Quantis USB library";
+    }
+    else if (options_.source == QrngSource::Pcie)
+    {
+        result.source = options_.qrandomPath;
+    }
+    else
+    {
+        result.source = "Linux getrandom()";
+    }
     result.extractionApplied = options_.extraction;
     if (options_.extraction)
     {
@@ -226,7 +279,7 @@ bool RandomSource::read(std::size_t size, RandomReadResult &result, std::string 
     {
 #ifdef QRNG_ENABLE_OS_XOR
         std::vector<std::uint8_t> osBytes;
-        if (!readFile("/dev/urandom", size, osBytes, error))
+        if (!readOs(size, osBytes, error))
         {
             return false;
         }

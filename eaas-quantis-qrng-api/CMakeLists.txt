@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(ENABLE_OS_XOR "Allow XORing QRNG output with /dev/urandom" ON)
+option(ENABLE_OS_XOR "Allow XORing QRNG output with Linux getrandom()" ON)
 set(QUANTIS_ROOT "/opt/quantis" CACHE PATH "Quantis installation prefix")
 
 find_library(DROGON_LIBRARY drogon REQUIRED)

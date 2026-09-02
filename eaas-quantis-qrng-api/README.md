@@ -1,96 +1,68 @@
 # Quantis QRNG API
 
-`GET /random_number/{1..8}` returns a random unsigned integer plus the source
-and processing actually used.
+`GET /random_number/{1..8}` returns a random unsigned integer and reports the
+source and processing used.
 
-## What each device needs
+## Select a mode
 
-| Device/mode | Host setting | API flags |
+| Source | Requirement | Flags |
 |---|---|---|
-| USB, device output | None; use `libusb-1.0` + `libQuantis` | `--source usb --extract off` |
-| USB, software extraction | Same USB setup | `--source usb --extract on` |
-| PCIe, normal use | Driver RNG mode (`default_qrng_mode=0`) | `--source pcie --pcie-output extracted --extract off` |
-| PCIe, raw samples | Driver SAMPLE mode (`default_qrng_mode=1`) | `--source pcie --pcie-output raw --extract off` |
-| PCIe raw + software extraction | Driver SAMPLE mode (`default_qrng_mode=1`) | `--source pcie --pcie-output raw --extract on` |
+| USB, direct | Quantis library + USB access | `--source usb --extract off` |
+| USB, software-extracted | Same, plus bundled matrix | `--source usb --extract on` |
+| PCIe, hardware-extracted | Host driver in RNG mode | `--source pcie --pcie-output extracted --extract off` |
+| PCIe, raw samples | Host driver in SAMPLE mode | `--source pcie --pcie-output raw --extract off` |
+| PCIe, software-extracted | SAMPLE mode + bundled matrix | `--source pcie --pcie-output raw --extract on` |
+| Linux kernel CRNG | Nothing beyond Linux | `--source os --extract off --xor-os off` |
 
-USB is **not** exposed as `/dev/qrandom0`; on Linux it is accessed through
-`libusb-1.0`, here via `libQuantis`. PCIe is read directly from
-`/dev/qrandom0`. The PCIe sources originate from the
-[Quantis 20.2.4 dependency package](https://github.com/qursa-uc3m/quantis-qrng-tls-pq-bench/tree/master/quantis-qrng-nginx/dependencies/pcie-chip-20.2.4-linux).
+USB uses `libQuantis`/`libusb`; it does **not** create `/dev/qrandom0`. PCIe
+requires the host kernel driver and is read from `/dev/qrandom0`. In normal RNG
+mode the PCIe FPGA already applies hardware post-processing. SAMPLE mode is raw;
+use it only for measurements or with `--extract on`.
 
-The PCIe card is different from USB: its driver configures the FPGA. RNG mode
-enables the card's hardware post-processing; SAMPLE mode disables it and
-returns raw samples. Do not combine PCIe RNG mode with `--extract on`: the API
-rejects that double-processing configuration. Raw PCIe output without software
-extraction is allowed for measurements, but the response carries a warning and
-must not be treated as cryptographic randomness.
+If a QRNG is fed into the Linux entropy pool using `rngd` or equivalent, select
+`--source os`. The API uses `getrandom()`, so its output comes from the Linux
+kernel CRNG and may include that QRNG contribution; it is not attributable only
+to the QRNG. OS XOR is therefore rejected for this source as redundant.
 
-OS XOR and `/dev/urandom` fallback are independent of extraction. XOR is
-available only when built with `-DENABLE_OS_XOR=ON`.
+## Matrix installation is automatic
 
-## PCIe kernel mode
+Yes: use the matrix already bundled in this repository:
 
-The mode is a **host kernel-driver setting**, not a container setting. The
-installer selects it and reloads the module so it takes effect:
-
-```bash
-sudo ./dependencies/quantis-drivers/install_quantis_driver.sh extracted  # RNG, parameter 0
-sudo ./dependencies/quantis-drivers/install_quantis_driver.sh raw        # SAMPLE, parameter 1
-cat /sys/module/quantis_chip_pcie/parameters/default_qrng_mode
+```text
+quantis-libraries/Libs-Apps/QuantisExtensions/default_idq_matrix.dat
 ```
 
-Writing the sysfs parameter after the card is initialized is insufficient; use
-the installer to unload/reload the module. Stop readers of `/dev/qrandom0`
-first. The API's `--pcie-output` value states what the host driver supplies and
-must match it; the container deliberately does not load or reconfigure kernel
-modules.
+It appears as `dependencies/quantis-libraries/...` inside the API build context.
 
-## Extraction matrix
-
-The default 1024x768-bit matrix is installed at:
+`build.sh` and the Dockerfile call the library installer with `--extraction`.
+That installer copies the matrix automatically to:
 
 ```text
 /opt/quantis/share/quantis/default_idq_matrix.dat
 ```
 
-It is loaded only with `--extract on`. It can be used for USB output or for
-PCIe **raw/SAMPLE** output. It is not used for normal PCIe RNG output, because
-that output is already post-processed by the card. The Docker image includes
-the default matrix at the same path. A custom file must be compatible with the
-API's 1024-input-bit/768-output-bit dimensions. Mount it read-only and pass its
-container path:
-
-```bash
-docker run --rm \
-  --device /dev/bus/usb:/dev/bus/usb \
-  --mount type=bind,src=/host/custom_matrix.dat,dst=/matrix.dat,readonly \
-  qrng-api --source usb --extract on --matrix /matrix.dat
-```
+Nothing is assumed to be preinstalled and no manual copy is needed. The API
+loads the file only with `--extract on`. It is valid for USB or PCIe raw/SAMPLE
+data, never for already-processed PCIe RNG data. `--matrix PATH` is only an
+override for a custom compatible matrix.
 
 ## Build and run
 
-Place `quantis-libraries/` and optionally `quantis-drivers/` under
-[`dependencies/`](dependencies/README.md), then:
+Place the dependencies as described in
+[`dependencies/README.md`](dependencies/README.md), then:
 
 ```bash
 ./build.sh --pcie-driver skip --os-xor on
-./build/eaas-quantis-qrng-api \
-  --source usb \
-  --device-number 0 \
-  --extract on \
-  --xor-os on \
-  --fallback on
+./build/eaas-quantis-qrng-api --source os
 ```
 
-Use `--pcie-driver extracted` for hardware-extracted PCIe output or
-`--pcie-driver raw` when the API will return raw samples or apply software
-extraction. `build.sh` installs the USB/extraction libraries because one binary
-supports both devices. Drogon must already be installed for a host build.
-
-All runtime flags:
+For PCIe, `--pcie-driver extracted` installs/reloads the driver in normal RNG
+mode; `--pcie-driver raw` selects SAMPLE mode. This is a host kernel setting,
+not a container setting. The driver source is from the
+[Quantis 20.2.4 package](https://github.com/qursa-uc3m/quantis-qrng-tls-pq-bench/tree/master/quantis-qrng-nginx/dependencies/pcie-chip-20.2.4-linux).
 
 ```text
---source usb|pcie
+--source usb|pcie|os
 --pcie-output extracted|raw
 --device-number N
 --qrandom /dev/qrandom0
@@ -101,29 +73,29 @@ All runtime flags:
 --port 6065
 ```
 
-If the primary QRNG read fails and fallback is on, the response uses
-`/dev/urandom` and reports `"fallback": true` and a warning.
-`"extraction"` reports software-matrix use for backward compatibility;
-`"extraction_mode"` explicitly reports `none`, `software-matrix`, or
-`pcie-hardware`. PCIe responses also report the configured `"pcie_output"`.
+`--xor-os on` XORs hardware bytes with `getrandom()` and is available only when
+built with `--os-xor on`. If a hardware read fails and `--fallback on`, the API
+uses `getrandom()` and reports the fallback and original error. `getrandom()`
+and `/dev/urandom` use the same initialized Linux CSPRNG, but `getrandom()` is
+used everywhere here because it waits for initialization and needs no device
+file. OpenSSL `RAND_bytes()` would add another wrapper around the OS RNG without
+improving this Linux-only PoC's entropy source.
 
 ## Container
 
-The Docker build expects `dependencies/quantis-libraries/` and supports:
-
 ```bash
 docker build --build-arg OS_XOR=ON -t qrng-api .
+
+# No hardware access needed:
+docker run --rm --network host qrng-api --source os
+
+# PCIe driver must already be installed on the host:
 docker run --rm --network host --device /dev/qrandom0:/dev/qrandom0:r qrng-api \
-  --source pcie --pcie-output extracted --extract off --xor-os on --fallback on
+  --source pcie --pcie-output extracted
 ```
 
-The PCIe kernel driver must be installed on the host. The container needs only
-the device, not `--privileged`: map `/dev/qrandom0` for PCIe or `/dev/bus/usb`
-for USB. Compose uses `QRNG_DOCKER_DEVICE`; its PCIe default is
-`/dev/qrandom0:/dev/qrandom0:r`. For USB set:
-
-```bash
-QRNG_SOURCE=usb \
-QRNG_DOCKER_DEVICE=/dev/bus/usb:/dev/bus/usb \
-docker compose up --build qrng-api
-```
+For USB, expose the required host USB device(s). Compose defaults to
+`QRNG_PRIVILEGED=false`, which is sufficient for `--source os` and fallback.
+For the simplest PoC hardware setup use `QRNG_PRIVILEGED=true`; direct
+`docker run --device ...` mappings are preferable when the exact device is
+known.

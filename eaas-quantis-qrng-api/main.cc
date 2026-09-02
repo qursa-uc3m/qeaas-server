@@ -32,14 +32,14 @@ void printUsage(const char *program)
 {
     std::cout
         << "Usage: " << program << " [options]\n\n"
-        << "  --source usb|pcie       Primary QRNG source (default: pcie)\n"
+        << "  --source usb|pcie|os    Primary randomness source (default: pcie)\n"
         << "  --pcie-output MODE      extracted|raw; must match host driver (default: extracted)\n"
         << "  --device-number N       Quantis USB index (default: 0)\n"
         << "  --qrandom PATH          PCIe device path (default: /dev/qrandom0)\n"
         << "  --extract on|off        Matrix extraction (default: off)\n"
         << "  --matrix PATH           Extraction matrix file\n"
-        << "  --xor-os on|off         XOR with /dev/urandom (default: off)\n"
-        << "  --fallback on|off       Fall back to /dev/urandom (default: on)\n"
+        << "  --xor-os on|off         XOR with Linux getrandom() (default: off)\n"
+        << "  --fallback on|off       Fall back to Linux getrandom() (default: on)\n"
         << "  --port N                HTTP port (default: 6065)\n"
         << "  --help                  Show this help\n";
 }
@@ -72,9 +72,13 @@ AppOptions parseArguments(int argc, char **argv)
             {
                 options.random.source = QrngSource::Pcie;
             }
+            else if (value == "os")
+            {
+                options.random.source = QrngSource::Os;
+            }
             else
             {
-                throw std::runtime_error("--source expects 'usb' or 'pcie'");
+                throw std::runtime_error("--source expects 'usb', 'pcie', or 'os'");
             }
         }
         else if (argument == "--pcie-output")
@@ -142,9 +146,12 @@ int main(int argc, char **argv)
         const auto options = parseArguments(argc, argv);
         initializeRandomSource(options.random);
 
-        std::cout << "QRNG source=" << sourceName(options.random.source)
-                  << " pcie_output=" << pcieOutputName(options.random.pcieOutput)
-                  << " extraction=" << (options.random.extraction ? "on" : "off")
+        std::cout << "random source=" << sourceName(options.random.source);
+        if (options.random.source == QrngSource::Pcie)
+        {
+            std::cout << " pcie_output=" << pcieOutputName(options.random.pcieOutput);
+        }
+        std::cout << " extraction=" << (options.random.extraction ? "on" : "off")
                   << " xor_os=" << (options.random.xorOs ? "on" : "off")
                   << " fallback=" << (options.random.fallback ? "on" : "off") << '\n';
 

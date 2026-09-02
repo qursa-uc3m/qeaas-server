@@ -9,7 +9,8 @@
 enum class QrngSource
 {
     Usb,
-    Pcie
+    Pcie,
+    Os
 };
 
 enum class PcieOutput
@@ -56,6 +57,7 @@ class RandomSource
   private:
     bool readPrimary(std::size_t size, std::vector<std::uint8_t> &output, std::string &error);
     bool readRaw(std::size_t size, std::vector<std::uint8_t> &output, std::string &error);
+    bool readOs(std::size_t size, std::vector<std::uint8_t> &output, std::string &error);
     bool readFile(const std::string &path, std::size_t size, std::vector<std::uint8_t> &output,
                   std::string &error);
 
